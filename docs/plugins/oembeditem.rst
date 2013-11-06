@@ -34,6 +34,8 @@ By default, the following services are supported:
 * `Scribd <http://www.scribd.com/>`_
 * `Slideshare <http://www.slideshare.net/>`_
 * `SmugMug <http://www.smugmug.com/>`_
+* `SoundCloud <https://soundcloud.com/>`_
+* `Speaker Desk <https://speakerdeck.com/>`_
 * `Twitter <http://twitter.com/>`_ (status messages)
 * `Viddler <http://www.viddler.com/>`_
 * `Vimeo <http://vimeo.com/>`_
@@ -47,6 +49,12 @@ By using the paid-for `embed.ly`_ service, `many other sites <http://embed.ly/pr
 Installation
 ------------
 
+Install the dependencies via *pip*::
+
+    pip install django-fluent-contents[oembeditem]
+
+This installs the micawber_ package.
+
 Add the following settings to ``settings.py``:
 
 .. code-block:: python
@@ -54,10 +62,6 @@ Add the following settings to ``settings.py``:
     INSTALLED_APPS += (
         'fluent_contents.plugins.oembeditem',
     )
-
-The dependencies can be installed via `pip`::
-
-    pip install micawber
 
 
 Configuration
@@ -67,22 +71,24 @@ The following settings are available:
 
 .. code-block:: python
 
-    FLUENT_OEMBED_SOURCE = 'list'   # "list", "basic" or "embedly"
+    FLUENT_OEMBED_SOURCE = 'basic'   # "list", "basic" or "embedly"
 
-    FLUENT_OEMBED_PROVIDER_LIST = (
-        (r'http://(www\.)?youtube\.com/watch\S*',  'http://www.youtube.com/oembed'),
-        (r'http://youtu\.be/\S*',                  'http://www.youtube.com/oembed'),
-        (r'http://blip\.tv/\S*',                   'http://blip.tv/oembed/'),
-        (r'http://(www\.)?vimeo\.com/\S*',         'http://vimeo.com/api/oembed.json'),
-
-        # ...
-    )
-
-    FLUENT_OEMBED_PROVIDER_LIST_EXTRA = (
-
+    FLUENT_OEMBED_EXTRA_PROVIDERS = (
+        (r'http://\S+.wordpress\.com/\S*',  'http://public-api.wordpress.com/oembed/?for=my-domain-name'),
+        (r'http://\S+.wp\.me/\S*',          'http://public-api.wordpress.com/oembed/?for=my-domain-name'),
     )
 
     MICAWBER_EMBEDLY_KEY = ''
+
+
+    FLUENT_OEMBED_PROVIDER_LIST = (
+        (r'https?://(www\.)?youtube\.com/watch\S*',  'http://www.youtube.com/oembed'),
+        (r'http://youtu\.be/\S*',                    'http://www.youtube.com/oembed'),
+        (r'http://blip\.tv/\S*',                     'http://blip.tv/oembed/'),
+        (r'https?://(www\.)?vimeo\.com/\S*',         'http://vimeo.com/api/oembed.json'),
+
+        # ...
+    )
 
 
 FLUENT_OEMBED_SOURCE
@@ -90,14 +96,28 @@ FLUENT_OEMBED_SOURCE
 
 The source to use for the OEmbed provider list. This can be one the following values:
 
-* **list** Use the provides defined in ``FLUENT_OEMBED_PROVIDER_LIST``.
-* **basic** Use the basic list defined in the micawber_ package.
+* **basic** Use the list of well-known providers in the micawber_ package.
+* **noembed** Use the embed service from `noembed`_
 * **embedly** Use the embed service from `embed.ly`_
+* **list** Use the provides defined in ``FLUENT_OEMBED_PROVIDER_LIST``.
 
 The `embed.ly`_ service contains many providers, including sites which do not have an OEmbed implementation themselves.
 The service does cost money, and requires an API key. For a list of providers supported by `embed.ly`_ see http://embed.ly/providers
 
-The *list* setting is the default, and contains the services known to provide an OEmbed endpoint.
+The *basic* setting is the default, and contains well known services that provide an OEmbed endpoint.
+
+
+FLUENT_OEMBED_EXTRA_PROVIDERS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The OEmbed providers in this setting will be added to the existing set that ``FLUENT_OEMBED_SOURCE`` contains.
+Each item is a tuple with the regular expression and endpoint URL.
+
+
+MICAWBER_EMBEDLY_KEY
+~~~~~~~~~~~~~~~~~~~~
+
+The key to access the `embed.ly`_ service.
 
 
 FLUENT_OEMBED_PROVIDER_LIST
@@ -105,7 +125,7 @@ FLUENT_OEMBED_PROVIDER_LIST
 
 A fixed hard-coded list of providers.
 Specify this setting to override the complete set of default OEmbed providers.
-To add custom providers to the existing list, use ``FLUENT_OEMBED_PROVIDER_LIST_EXTRA`` instead.
+To add additional providers to any existing source, use ``FLUENT_OEMBED_EXTRA_PROVIDERS`` instead.
 
 Each item is a tuple with two fields:
 
@@ -114,19 +134,6 @@ Each item is a tuple with two fields:
 
 Note that the regular expressions never test for ``.*`` but use ``\S*`` instead
 so micawber_ can also detect the URL within a larger fragment.
-
-
-FLUENT_OEMBED_PROVIDER_LIST_EXTRA
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The OEmbed providers in this setting will be added to the default ``FLUENT_OEMBED_PROVIDER_LIST`` value.
-Each item is a tuple with the regular expression and endpoint URL.
-
-
-MICAWBER_EMBEDLY_KEY
-~~~~~~~~~~~~~~~~~~~~
-
-The key to access the `embed.ly`_ service.
 
 
 Security considerations
@@ -140,4 +147,5 @@ Hence, the OEmbed discovery protocol is not supported either.
 
 
 .. _embed.ly: http://embed.ly/
+.. _noembed: http://noembed.com/
 .. _micawber: https://github.com/coleifer/micawber/

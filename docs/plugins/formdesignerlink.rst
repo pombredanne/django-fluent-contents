@@ -19,12 +19,15 @@ The form is displayed at the website:
     While the `form_designer` interface may not be fully up to the "UI standards" of `django-fluent-contents`,
     it is however a popular module, and hence this plugin is provided!
 
+
 Installation
 ------------
 
-Make sure the django-form-designer_ module is installed via pip::
+Install the dependencies via *pip*::
 
-    pip install -e https://github.com/philomat/django-form-designer.git#egg=django-form-designer
+    pip install django-fluent-contents[formdesignerlink]
+
+This installs django-form-designer_.
 
 Add the following settings to ``settings.py``:
 
@@ -44,6 +47,7 @@ To display previews, the `form_designer` application also requires an additional
     )
 
 Each page can now be enriched with a form, that was created by the `form_designer` application.
+
 
 Configuration
 -------------

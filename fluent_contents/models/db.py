@@ -3,11 +3,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import FieldError
 from django.db import models
+from django.dispatch import receiver
 from django.utils.translation import ugettext_lazy as _
+from parler.signals import post_translation_delete
+from parler.utils import get_language_title
 from polymorphic import PolymorphicModel
 from polymorphic.base import PolymorphicModelBase
-from fluent_contents.cache import get_rendering_cache_key
-from fluent_contents.models.managers import PlaceholderManager, ContentItemManager, get_parent_lookup_kwargs
+from fluent_contents import appsettings
+from fluent_contents.models.managers import PlaceholderManager, ContentItemManager, get_parent_language_code
 
 
 class Placeholder(models.Model):
@@ -42,7 +45,7 @@ class Placeholder(models.Model):
     role = models.CharField(_('Role'), max_length=1, choices=ROLES, default=MAIN, help_text=_("This defines where the object is used."))
 
     # Track relation to parent (e.g. page or article)
-    parent_type = models.ForeignKey(ContentType, null=True, blank=True)  # Allow null for global placeholders
+    parent_type = models.ForeignKey(ContentType, null=True, blank=True)  # Used to be null for global placeholders, but the 'sharedcontent' plugin solves this issue.
     parent_id = models.IntegerField(null=True)    # Need to allow Null, because Placeholder is created before parent is saved.
     parent = GenericForeignKey('parent_type', 'parent_id')
 
@@ -65,20 +68,52 @@ class Placeholder(models.Model):
         Return the plugins which are supported in this placeholder.
         """
         from fluent_contents import extensions  # avoid circular import
-        return extensions.plugin_pool.get_plugins()
+
+        # See if there is a limit imposed.
+        slot_config = self.get_slot_config()
+        plugins = slot_config.get('plugins')
+        if not plugins:
+            return extensions.plugin_pool.get_plugins()
+        else:
+            try:
+                return extensions.plugin_pool.get_plugins_by_name(*plugins)
+            except extensions.PluginNotFound as e:
+                raise extensions.PluginNotFound(str(e) + " Update the plugin list of the FLUENT_CONTENTS_PLACEHOLDER_CONFIG['{0}'] setting.".format(self.slot))
 
 
-    def get_content_items(self, parent=None):
+    def get_content_items(self, parent=None, limit_parent_language=True):
         """
         Return all models which are associated with this placeholder.
         Because a :class:`ContentItem` is polymorphic, the actual sub classes of the content item will be returned by the query.
+
+        By passing the :attr:`parent` object, the items can additionally
+        be filtered by the parent language.
         """
         item_qs = self.contentitems.all()   # django-polymorphic FTW!
 
         if parent:
-            item_qs = item_qs.filter(**get_parent_lookup_kwargs(parent))
+            # Filtering by parent should return the same results,
+            # unless the database is broken by having objects reference the wrong placeholders.
+            # Additionally, the `limit_parent_language` argument is supported.
+            item_qs = item_qs.parent(parent, limit_parent_language=limit_parent_language)
+        else:
+            # For accurate rendering filtering by parent is needed.
+            # Otherwise, we risk returning stale objects which are indeed attached to this placeholder,
+            # but belong to a different parent. This can only happen when manually changing database contents.
+            # The admin won't display anything, as it always filters the parent. Hence, do the same for other queries.
+            item_qs = item_qs.filter(
+                parent_type_id=self.parent_type_id,
+                parent_id=self.parent_id
+            )
 
         return item_qs
+
+
+    def get_slot_config(self):
+        """
+        Return the site-wide configuration associated with this slot.
+        """
+        return appsettings.FLUENT_CONTENTS_PLACEHOLDER_CONFIG.get(self.slot) or {}
 
 
     def get_absolute_url(self):
@@ -185,6 +220,7 @@ class ContentItem(PolymorphicModel):
     parent_type = models.ForeignKey(ContentType)
     parent_id = models.IntegerField(null=True)    # Need to allow Null, because Placeholder is created before parent is saved.
     parent = GenericForeignKey('parent_type', 'parent_id')
+    language_code = models.CharField(max_length=15, db_index=True, editable=False, default='')
 
     # Deleting a placeholder should not remove the items, only makes them orphaned.
     # Also, when updating the page, the PlaceholderEditorInline first adds/deletes placeholders before the items are updated.
@@ -210,9 +246,11 @@ class ContentItem(PolymorphicModel):
 
 
     def __unicode__(self):
-        return u"{type} {id:d} in '{placeholder}'".format(
-            type=self.polymorphic_ctype or self._meta.verbose_name,
+        # Note this representation is optimized for the admin delete page.
+        return u"'{type} {id:d}' in '{language} {placeholder}'".format(
+            type=ContentType.objects.get_for_id(self.polymorphic_ctype_id).model_class()._meta.verbose_name,
             id=self.id or 0,
+            language=get_language_title(self.language_code),
             placeholder=self.placeholder
         )
 
@@ -232,13 +270,21 @@ class ContentItem(PolymorphicModel):
         # Allows quick debugging, and cache refreshes.
         parent = self.parent
         try:
-            return self.parent.get_absolute_url()
+            return parent.get_absolute_url()
         except AttributeError:
             return None
 
+
     def save(self, *args, **kwargs):
+        # Fallback, make sure the object has a language.
+        # As this costs a query per object, the admin formset already sets the language_code whenever it can.
+        if not self.language_code:
+            self.language_code = get_parent_language_code(self.parent) or appsettings.FLUENT_CONTENTS_DEFAULT_LANGUAGE_CODE
+
+        is_new = not self.pk
         super(ContentItem, self).save(*args, **kwargs)
-        self.clear_cache()
+        if not is_new:
+            self.clear_cache()
 
 
     def delete(self, *args, **kwargs):
@@ -257,12 +303,37 @@ class ContentItem(PolymorphicModel):
     def get_cache_keys(self):
         """
         Get a list of all cache keys associated with this model.
+        This queries the associated plugin for the cache keys it used to store the output at.
         """
         if not self.placeholder_id:
             # TODO: prune old placeholder slot name?
             return []
 
+        # As plugins can change the output caching,
+        # they should also return which keys content is stored at.
         placeholder_name = self.placeholder.slot
-        return [
-            get_rendering_cache_key(placeholder_name, self)
-        ]
+        keys = []  # ensure list return type.
+        keys.extend(self.plugin.get_output_cache_keys(placeholder_name, self))
+        return keys
+
+
+
+# Instead of overriding the admin classes (effectively inserting the TranslatableAdmin
+# in all your PlaceholderAdmin subclasses too), a signal is handled instead.
+# It's up to you to deside whether the use the TranslatableAdmin (or any other similar class)
+# in your admin for multilingual support. As long as the models provide a get_current_language()
+# or `language_code` attribute, the correct contents will be filtered and displayed.
+@receiver(post_translation_delete)
+def on_delete_model_translation(instance, **kwargs):
+    """
+    Make sure ContentItems are deleted when a translation in deleted.
+    """
+    translation = instance
+
+    parent_object = translation.master
+    parent_object.set_current_language(translation.language_code)
+
+    # Also delete any associated plugins
+    # Placeholders are shared between languages, so these are not affected.
+    for item in ContentItem.objects.parent(parent_object, limit_parent_language=True):
+        item.delete()  # Delete per item, to trigger cache clearing

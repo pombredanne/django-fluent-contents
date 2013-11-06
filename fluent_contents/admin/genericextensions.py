@@ -1,70 +1,7 @@
-from abc import abstractmethod
-from django.contrib.admin import ModelAdmin
-from django.contrib.admin.util import flatten_fieldsets
-from django.contrib.contenttypes.generic import GenericInlineModelAdmin, generic_inlineformset_factory, BaseGenericInlineFormSet
+from django.contrib.contenttypes.generic import BaseGenericInlineFormSet
 from django.contrib.contenttypes.models import ContentType
-from django.utils.functional import curry
-
-
-class DynamicInlinesModelAdmin(ModelAdmin):
-    """
-    ModelAdmin mixin to create inlines with a :func:`get_inlines()` method.
-    The initialization of the inlines is also delayed, reducing stress on the Django initialization sequence.
-    """
-    extra_inlines_first = True
-
-    @abstractmethod
-    def get_extra_inlines(self):
-        """
-        Overwrite this method to generate inlines.
-        """
-        raise NotImplementedError("The '{0}' subclass should implement get_extra_inlines()".format(self.__class__.__name__))
-
-
-    # Django 1.3:
-    # Inlines are created once in self.inline_instances
-
-    def __init__(self, *args, **kwargs):
-        super(DynamicInlinesModelAdmin, self).__init__(*args, **kwargs)
-        self._initialized_inlines = False
-
-    def get_form(self, request, obj=None, **kwargs):
-        if hasattr(self, 'inline_instances') \
-        and not self._initialized_inlines:
-            # delayed the initialisation a bit
-            # When inlines are dynamically created, calling it too early places more stress on the Django load mechanisms.
-            # This happens with plugin scanning code.
-            #
-            # e.g. load_middleware() -> import xyz.admin.something -> processes __init__.py ->
-            #      admin.site.register(SomethingAdmin) -> Base::__init__() -> start looking for plugins -> ImportError
-            #
-            if self.extra_inlines_first:
-                self.inline_instances = self._get_extra_inline_instances() + self.inline_instances
-            else:
-                self.inline_instances += self._get_extra_inline_instances()
-            self._initialized_inlines = True
-        return super(DynamicInlinesModelAdmin, self).get_form(request, obj, **kwargs)
-
-
-    def _get_extra_inline_instances(self):
-        inline_instances = []
-        inlinetypes = self.get_extra_inlines()
-        for InlineType in inlinetypes:
-            inline_instance = InlineType(self.model, self.admin_site)
-            inline_instances.append(inline_instance)
-        return inline_instances
-
-
-    # Django 1.4:
-    # Inlines are created per request
-
-    def get_inline_instances(self, request):
-        inlines = super(DynamicInlinesModelAdmin, self).get_inline_instances(request)
-        if self.extra_inlines_first:
-            return self._get_extra_inline_instances() + inlines
-        else:
-            return inlines + self._get_extra_inline_instances()
-
+from django.core.exceptions import ValidationError
+from django.forms.formsets import ManagementForm
 
 
 class BaseInitialGenericInlineFormSet(BaseGenericInlineFormSet):
@@ -80,6 +17,25 @@ class BaseInitialGenericInlineFormSet(BaseGenericInlineFormSet):
         # This instance is created each time in the change_view() function.
         self._initial = kwargs.pop('initial', [])
         super(BaseInitialGenericInlineFormSet, self).__init__(*args, **kwargs)
+
+
+    @property
+    def management_form(self):
+        try:
+            return super(BaseInitialGenericInlineFormSet, self).management_form
+        except ValidationError:
+            # Provide with better description of what is happening.
+            form = ManagementForm(self.data, auto_id=self.auto_id, prefix=self.prefix)
+            if not form.is_valid():
+                raise ValidationError(
+                    u'ManagementForm data is missing or has been tampered with.'
+                    u' form: {0}, model: {1}, errors: \n{2}'.format(
+                        self.__class__.__name__, self.model.__name__,
+                        form.errors.as_text()
+                ))
+            else:
+                raise
+
 
     def initial_form_count(self):
         if self.is_bound:
@@ -115,45 +71,3 @@ class BaseInitialGenericInlineFormSet(BaseGenericInlineFormSet):
 
         form = super(BaseInitialGenericInlineFormSet, self)._construct_form(i, **kwargs)
         return form
-
-
-class ExtensibleGenericInline(GenericInlineModelAdmin):
-    """
-    Custom :class:`~django.contrib.contenttypes.generic.GenericInlineModelAdmin` subclass
-    that got some of it's extensibility back.
-    """
-    exclude_unchecked = None
-
-    def get_formset(self, request, obj=None, **kwargs):
-        """
-        Overwritten ``GenericStackedInline.get_formset`` to restore two options:
-        - Add a ``exclude_unchecked`` field, that allows adding fields like the ``_ptr`` fields.
-        - Restore the ``kwargs`` option.
-        """
-        if self.declared_fieldsets:
-            fields = flatten_fieldsets(self.declared_fieldsets)
-        else:
-            fields = None
-        if self.exclude is None:
-            exclude = []
-        else:
-            exclude = list(self.exclude)
-        exclude.extend(self.get_readonly_fields(request, obj))
-        if self.exclude_unchecked:
-            exclude.extend(self.exclude_unchecked)
-        defaults = {
-            "ct_field": self.ct_field,
-            "fk_field": self.ct_fk_field,
-            "form": self.form,
-            "formfield_callback": curry(self.formfield_for_dbfield, request=request),
-            "formset": self.formset,
-            "extra": self.extra,
-            "can_delete": self.can_delete,
-            "can_order": False,
-            "fields": fields,
-            "max_num": self.max_num,
-            "exclude": exclude
-        }
-        defaults.update(kwargs)   # Give the kwargs back
-        return generic_inlineformset_factory(self.model, **defaults)
-

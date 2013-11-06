@@ -1,9 +1,13 @@
+.. image::  https://travis-ci.org/edoburu/django-fluent-contents.png?branch=master
+  :target: http://travis-ci.org/edoburu/django-fluent-contents
+  :alt: build-status
+
 Introduction
 ============
 
 The *fluent_contents* module offers a widget engine to display various content on a Django page.
 
-This engine operates similary like Django CMS, FeinCMS or django-portlets,
+This engine operates similarly like Django CMS, FeinCMS or django-portlets,
 however, it can be used for any project, or CMS system.
 
 Page contents can be constructed with multiple "content items".
@@ -37,6 +41,7 @@ By default, the following content items are available:
 * Gist - display Gist snippets from Github.
 * IFrame - display an ``<iframe>`` on the page.
 * Raw HTML content - include jQuery snippets, or "embed codes" by other services.
+* Shared content - display a set of items at multiple locations.
 
 **Interactive:**
 
@@ -76,6 +81,10 @@ First install the module, preferably in a virtual environment. It can be install
 Or the current folder can be installed::
 
     pip install .
+
+The dependencies of plugins are not included by default. To install those, include the plugin names as extra option::
+
+    pip install django-fluent-contents[code,disquscommentsarea,formdesignerlink,markup,oembeditem,text,twitterfeed]
 
 Configuration
 -------------

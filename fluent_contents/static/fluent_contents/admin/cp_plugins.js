@@ -27,7 +27,8 @@ var cp_plugins = {};
   cp_plugins.on_init = function(callback)
   {
     on_init_callbacks.push(callback);
-  },
+  }
+
 
   /**
    * Bind an event before the final layout is organized.
@@ -45,11 +46,25 @@ var cp_plugins = {};
   cp_plugins.init = function()
   {
     $("#content-main > form").submit( cp_plugins.onFormSubmit );
-    $(".cp-plugin-add-button").live( 'click', cp_plugins.onAddButtonClick );
-    $(".cp-item-controls .cp-item-up").live( 'click', cp_plugins.onItemUpClick );
-    $(".cp-item-controls .cp-item-down").live( 'click', cp_plugins.onItemDownClick );
-    $(".cp-item-controls .cp-item-move").live( 'click', cp_plugins.onItemMoveClick );
-    $(".cp-item-controls .cp-item-delete a").live( 'click', cp_plugins.onDeleteClick );
+
+    if($.fn.on) {
+      // jQuery 1.7+
+      $("#content-main")
+        .on('click', ".cp-plugin-add-button", cp_plugins.onAddButtonClick )
+        .on('click', ".cp-copy-language-controls .cp-copy-button", cp_plugins.onCopyLanguageButtonClick )
+        .on('click', ".cp-item-controls .cp-item-up", cp_plugins.onItemUpClick )
+        .on('click', ".cp-item-controls .cp-item-down", cp_plugins.onItemDownClick )
+        .on('click', ".cp-item-controls .cp-item-move", cp_plugins.onItemMoveClick )
+        .on('click', ".cp-item-controls .cp-item-delete a", cp_plugins.onDeleteClick );
+    }
+    else {
+      $(".cp-plugin-add-button").live( 'click', cp_plugins.onAddButtonClick );
+      $(".cp-copy-language-controls .cp-copy-button").live( 'click', cp_plugins.onCopyLanguageButtonClick );
+      $(".cp-item-controls .cp-item-up").live( 'click', cp_plugins.onItemUpClick );
+      $(".cp-item-controls .cp-item-down").live( 'click', cp_plugins.onItemDownClick );
+      $(".cp-item-controls .cp-item-move").live( 'click', cp_plugins.onItemMoveClick );
+      $(".cp-item-controls .cp-item-delete a").live( 'click', cp_plugins.onDeleteClick );
+    }
 
     // Allow plugins to initialize
     cp_plugins._init_view_handlers();
@@ -82,8 +97,9 @@ var cp_plugins = {};
   {
     // Count number of seen tabs per role.
     var roles_seen = {};
-    for(var i in cp_data.placeholders)
-      roles_seen[cp_data.placeholders[i].role] = 0;
+    var placeholders = cp_data.get_placeholders();
+    for(var i in placeholders)
+      roles_seen[placeholders[i].role] = 0;
 
     // Move all items to the tabs.
     // TODO: direct access to dom_placeholder data, should be cleaned up.
@@ -104,7 +120,7 @@ var cp_plugins = {};
     // Initialisation completed!
     if( is_first_layout )
     {
-      console.log("Initialized editor, placeholders=", cp_data.placeholders, " itemtypes=", cp_data.itemtypes);
+      console.log("Initialized editor, placeholders=", cp_data.get_placeholders(), " contentitems=", cp_data.contentitem_metadata);
       is_first_layout = false;
     }
   }
@@ -172,16 +188,16 @@ var cp_plugins = {};
     // Restore item values upon restoring fields.
     for(var i in dom_placeholder.items)
     {
-      var fs_item = dom_placeholder.items[i];
-      dom_placeholder.items[i] = cp_plugins._move_item_to( fs_item, function _move_to_pane(fs_item)
+      var $fs_item = dom_placeholder.items[i];
+      dom_placeholder.items[i] = cp_plugins._move_item_to( $fs_item, function _move_to_pane($fs_item)
       {
-        pane.content.append(fs_item);
+        pane.content.append($fs_item);
 
         // Update the placeholder-id.
         // Note this will not update the dom_placeholders,
         // hence the item will move back when the original layout is restored.
         if( pane.placeholder )
-          cp_plugins._set_pageitem_data(fs_item, pane.placeholder, i);
+          cp_plugins._set_pageitem_data($fs_item, pane.placeholder, i);
       });
     }
 
@@ -193,9 +209,9 @@ var cp_plugins = {};
   /**
    * Move an item to a new place.
    */
-  cp_plugins._move_item_to = function( fs_item, add_action )
+  cp_plugins._move_item_to = function( $fs_item, add_action )
   {
-    var itemId = fs_item.attr("id");
+    var itemId = $fs_item.attr("id");
 
     // Don't restore the special fields,
     // The add_action could move the formset item, and this update it.
@@ -203,66 +219,72 @@ var cp_plugins = {};
     var ignoreTest = function(name) { return $.inArray(name.substring(name.lastIndexOf('-')+1), ignoreFields) != -1; };
 
     // Remove the item.
-    cp_plugins.disable_pageitem(fs_item);   // needed for WYSIWYG editors!
-    var values = cp_plugins._get_input_values(fs_item, ignoreTest);
-    add_action( fs_item );
+    cp_plugins.disable_pageitem($fs_item);   // needed for WYSIWYG editors!
+    var values = cp_plugins._get_input_values($fs_item, ignoreTest);
+    add_action( $fs_item );
 
     // Fetch the node reference as it was added to the DOM.
-    fs_item = $("#" + itemId);
+    $fs_item = $("#" + itemId);
 
     // Re-enable the item
-    cp_plugins._set_input_values(fs_item, values, ignoreTest);
-    cp_plugins.enable_pageitem(fs_item);
+    cp_plugins._set_input_values($fs_item, values, ignoreTest);
+    cp_plugins.enable_pageitem($fs_item);
 
     // Return to allow updating the administration
-    return fs_item;
+    return $fs_item;
   }
 
 
-  cp_plugins._get_input_values = function(root, ignoreTestFunc)
+  cp_plugins._get_input_values = function($root, ignoreTestFunc)
   {
-    var inputs = root.find(":input");
+    var $inputs = $root.find(":input");
     var values = {};
-    for(var i = 0; i < inputs.length; i++)
+    for(var i = 0; i < $inputs.length; i++)
     {
-      var input = inputs.eq(i)
-        , name = input.attr("name");
+      var $input = $inputs.eq(i)
+        , name = $input.attr("name");
 
-      if( input[0].type == 'radio' && !input[0].checked )
+      if( $input[0].type == 'radio' && !$input[0].checked )
         continue;
 
       if( !ignoreTestFunc || !ignoreTestFunc(name) )
-        values[name] = input.val();
+        values[name] = $input.val();
     }
 
     return values;
   }
 
 
-  cp_plugins._set_input_values = function(root, values, ignoreTestFunc)
+  cp_plugins._set_input_values = function($root, values, ignoreTestFunc)
   {
-    var inputs = root.find(":input");
-    for(var i = 0; i < inputs.length; i++)
+    var $inputs = $root.find(":input");
+    for(var i = 0; i < $inputs.length; i++)
     {
-      var input = inputs.eq(i)
-        , name = input.attr("name");
+      var $input = $inputs.eq(i)
+        , name = $input.attr("name");
 
       if( values.hasOwnProperty(name)
        && (!ignoreTestFunc || !ignoreTestFunc(name)) )
       {
         var value = values[name];
-        if( input[0].type == 'radio' )
-        {
-          input[0].checked = (input[0].value == value);
-        }
-        else
-        {
-          if(value == null)
-            input.removeAttr('value');
-          else
-            input.val(value);
-        }
+        cp_plugins._set_input_value($input, value);
       }
+    }
+  }
+
+
+  cp_plugins._set_input_value = function($input, value)
+  {
+    if( $input[0].type == 'radio' )
+    {
+      $input[0].checked = ($input[0].value == value);
+    }
+    else
+    {
+      if(value == null)
+        $input.removeAttr('value');
+      else
+        $input.val(value);
     }
   }
 
@@ -274,24 +296,26 @@ var cp_plugins = {};
    */
   cp_plugins.onAddButtonClick = function(event)
   {
-    var add_button = $(event.target);
-    var placeholder_key = add_button.attr("data-placeholder-slot");  // TODO: use ID?
-    var itemtype_name = add_button.siblings("select").val();
-    cp_plugins.add_formset_item( placeholder_key, itemtype_name );
+    var $add_button = $(event.target);
+    var placeholder_key = $add_button.attr("data-placeholder-slot");  // TODO: use ID?
+    var model_name = $add_button.siblings("select").val();
+    cp_plugins.add_formset_item( placeholder_key, model_name );
   }
 
 
   /**
    * Add an item to a tab.
    */
-  cp_plugins.add_formset_item = function( placeholder_slot, itemtype_name )
+  cp_plugins.add_formset_item = function( placeholder_slot, model_name, options )
   {
+    options = options || {};
+
     // The Django admin/media/js/inlines.js API is not public, or easy to use.
     // Recoded the inline model dynamics.
 
     // Get objects
-    var itemtype = cp_data.get_formset_itemtype(itemtype_name);
-    var group_prefix = itemtype.auto_id.replace(/%s/, itemtype.prefix);
+    var inline_meta = cp_data.get_contentitem_metadata_by_type(model_name);
+    var group_prefix = inline_meta.auto_id.replace(/%s/, inline_meta.prefix);
     var placeholder = cp_data.get_placeholder_by_slot(placeholder_slot);
     var dom_placeholder = cp_data.get_or_create_dom_placeholder(placeholder);
 
@@ -301,39 +325,47 @@ var cp_plugins = {};
 
     // Clone the item.
     var new_index = total.value;
-    var item_id   = itemtype.prefix + "-" + new_index;
-    var newhtml = itemtype.item_template.get_outerHtml().replace(/__prefix__/g, new_index);
-    var newitem = $(newhtml).removeClass("empty-form").attr("id", item_id);
+    var item_id   = inline_meta.prefix + "-" + new_index;
+    var newhtml   = options.get_html
+                  ? options.get_html(inline_meta, new_index)   // hook
+                  : inline_meta.item_template.get_outerHtml().replace(/__prefix__/g, new_index);
+    var $newitem  = $(newhtml).removeClass("empty-form").attr("id", item_id);
 
     // Add it
-    pane.content.append(newitem);
+    pane.content.append($newitem);
     pane.empty_message.hide();
 
-    var fs_item = $("#" + item_id);
-    if( fs_item.length == 0 )
+    var $fs_item = $("#" + item_id);
+    if( $fs_item.length == 0 )
       throw new Error("New FormSetItem not found: #" + item_id);
 
     // Update administration
-    dom_placeholder.items.push(fs_item);
+    dom_placeholder.items.push($fs_item);
     total.value++;
 
     // Configure it
-    cp_plugins._set_pageitem_data(fs_item, placeholder, new_index);
-    cp_plugins.enable_pageitem(fs_item);
+    cp_plugins._set_pageitem_data($fs_item, placeholder, new_index);
+    cp_plugins.enable_pageitem($fs_item);
     cp_plugins.update_sort_order(pane);  // Not required, but keep the form state consistent all the time.
+    if(options.on_post_add) options.on_post_add($fs_item);
   }
 
 
-  cp_plugins._set_pageitem_data = function(fs_item, placeholder, new_sort_index)
+  cp_plugins._set_pageitem_data = function($fs_item, placeholder, new_sort_index)
   {
-    // Currently redetermining group_prefix, avoid letting fs_item to go out of sync with different call paths.
-    var current_item = cp_data.get_formset_item_data(fs_item);
-    var group_prefix = current_item.itemtype.auto_id.replace(/%s/, current_item.itemtype.prefix);
-    var field_prefix = group_prefix + "-" + current_item.index;
-
+    var field_prefix = cp_plugins._get_field_prefix($fs_item);
     $("#" + field_prefix + "-placeholder").val(placeholder.id);
     $("#" + field_prefix + "-placeholder_slot").val(placeholder.slot);
     $("#" + field_prefix + "-sort_order").val(new_sort_index);
+  }
+
+
+  cp_plugins._get_field_prefix = function($fs_item)
+  {
+    // Currently redetermining group_prefix, avoid letting fs_item to go out of sync with different call paths.
+    var current_item = cp_data.get_inline_formset_item_info($fs_item);
+    var group_prefix = current_item.auto_id.replace(/%s/, current_item.prefix);
+    return group_prefix + "-" + current_item.index;
   }
 
 
@@ -363,41 +395,42 @@ var cp_plugins = {};
 
   cp_plugins.swap_formset_item = function(child_node, isUp)
   {
-    var current_item = cp_data.get_formset_item_data(child_node);
-    var fs_item = current_item.fs_item;
-    var pane = cp_data.get_placeholder_pane_for_item(fs_item);
+    var current_item = cp_data.get_inline_formset_item_info(child_node);
+    var $fs_item = current_item.fs_item;
+    var pane = cp_data.get_placeholder_pane_for_item($fs_item);
 
     // Get next/previous item
-    var relative = fs_item[isUp ? 'prev' : 'next']("div");
+    var relative = $fs_item[isUp ? 'prev' : 'next']("div");
     if(!relative.length) return;
 
-    cp_plugins._fixate_item_height(fs_item);
-    fs_item = cp_plugins._move_item_to( fs_item, function _moveUpDown(fs_item) { fs_item[isUp ? 'insertBefore' : 'insertAfter'](relative); } );
-    cp_plugins._restore_item_height(fs_item);
+    cp_plugins._fixate_item_height($fs_item);
+    $fs_item = cp_plugins._move_item_to( $fs_item, function _moveUpDown(fs_item) { fs_item[isUp ? 'insertBefore' : 'insertAfter'](relative); } );
+    cp_plugins._restore_item_height($fs_item);
     cp_plugins.update_sort_order(pane);
   }
 
 
   cp_plugins.move_item_to_placeholder = function(child_node, slot)
   {
-    var current_item = cp_data.get_formset_item_data(child_node);  // childnode is likely already a current_item object.
-    var fs_item = current_item.fs_item;
+    var dominfo = cp_data.get_formset_dom_info(child_node);
+    var current_item = cp_data.get_inline_formset_item_info(child_node);  // childnode is likely already a current_item object.
+    var $fs_item = current_item.fs_item;
 
-    var old_pane = cp_data.get_placeholder_pane_for_item(fs_item);
-    var old_placeholder = cp_data.get_placeholder_by_slot(current_item.placeholder_slot);  // slot is always filled in.
+    var old_pane = cp_data.get_placeholder_pane_for_item($fs_item);
+    var old_placeholder = cp_data.get_placeholder_by_slot(dominfo.placeholder_slot);  // slot is always filled in.
     var new_placeholder = cp_data.get_placeholder_by_slot(slot);
     var dom_placeholder = cp_data.get_or_create_dom_placeholder(new_placeholder);
     var new_pane = cp_data.get_placeholder_pane(new_placeholder);
 
     // Move formset item
-    fs_item = cp_plugins._move_item_to( fs_item, function(fs_item) { new_pane.content.append(fs_item); } );
+    $fs_item = cp_plugins._move_item_to( $fs_item, function(fs_item) { new_pane.content.append(fs_item); } );
     var last_index = cp_plugins.update_sort_order(new_pane);
-    cp_plugins._set_pageitem_data(fs_item, new_placeholder, last_index);
+    cp_plugins._set_pageitem_data($fs_item, new_placeholder, last_index);
 
     // Move to proper dom placeholder list.
     // dom_placeholder is currently not accurate, behaves more like "desired placeholder".
     if( old_placeholder ) cp_data.remove_dom_item(old_placeholder.slot, current_item);
-    dom_placeholder.items.push(fs_item);
+    dom_placeholder.items.push($fs_item);
 
     // Update placeholders + hide popup
     new_pane.empty_message.hide();
@@ -408,7 +441,7 @@ var cp_plugins = {};
 
   cp_plugins._show_move_popup = function(child_node)
   {
-    var current_item = cp_data.get_formset_item_data(child_node);
+    var current_item = cp_data.get_inline_formset_item_info(child_node);
     var dominfo      = cp_data.get_formset_dom_info(current_item);
     var placeholders = cp_data.get_placeholders();
 
@@ -458,24 +491,24 @@ var cp_plugins = {};
   }
 
 
-  cp_plugins._fixate_item_height = function(fs_item)
+  cp_plugins._fixate_item_height = function($fs_item)
   {
     // Avoid height flashes by fixating height
     clearTimeout( restore_timer );
-    var tabmain = $("#cp-tabmain");   // FIXME: this breaks encapsulation of the tabbar control. Yet it is pretty easy this way.
-    tabmain.css("height", tabmain.height() + "px");
-    fs_item.css("height", fs_item.height() + "px");
+    var $tabmain = $("#cp-tabmain");   // FIXME: this breaks encapsulation of the tabbar control. Yet it is pretty easy this way.
+    $tabmain.css("height", $tabmain.height() + "px");
+    $fs_item.css("height", $fs_item.height() + "px");
   }
 
 
-  cp_plugins._restore_item_height = function(fs_item)
+  cp_plugins._restore_item_height = function($fs_item)
   {
     // Give more then enough time for the YUI editor to restore.
     // The height won't be changed within 2 seconds at all.
-    var tabmain = $("#cp-tabmain");   // FIXME: this breaks encapsulation of the tabbar control. Yet it is pretty easy this way.
+    var $tabmain = $("#cp-tabmain");   // FIXME: this breaks encapsulation of the tabbar control. Yet it is pretty easy this way.
     restore_timer = setTimeout(function() {
-      fs_item.css("height", '');
-      tabmain.css("height", '');
+      $fs_item.css("height", '');
+      $tabmain.css("height", '');
     }, 500);
   }
 
@@ -519,15 +552,15 @@ var cp_plugins = {};
   {
     var desired_id = tab.placeholder.id;
     var desired_slot = tab.placeholder.slot;
-    var inputs = tab.content.find('input[type=hidden]');
-    var ids = inputs.filter('[id$=-placeholder]');
-    var slots = inputs.filter('[id$=-placeholder_slot]');
-    if( ids.length != slots.length )
+    var $inputs = tab.content.find('input[type=hidden]');
+    var $ids = $inputs.filter('[id$=-placeholder]');
+    var $slots = $inputs.filter('[id$=-placeholder_slot]');
+    if( $ids.length != $slots.length )
       return false;
 
-    for( var i = 0; i < ids.length; i++ )
+    for( var i = 0; i < $ids.length; i++ )
     {
-      var id = ids[i].value, slot = slots[i].value;
+      var id = $ids[i].value, slot = $slots[i].value;
       if( id != desired_id || (slot != desired_slot && !(slot == '' && id)) )
         return false;
     }
@@ -535,16 +568,81 @@ var cp_plugins = {};
   }
 
 
-  cp_plugins._sort_items = function(items)
+  cp_plugins._sort_items = function($items)
   {
     // The sort_order field is likely top-level, but the fieldset html can place it anywhere.
-    for( var i in items)
+    for( var i in $items)
     {
-      var fs_item = items[i];
-      fs_item._sort_order = parseInt(fs_item.find("input[id$=-sort_order]:first").val());
+      var $fs_item = $items[i];
+      $fs_item._sort_order = parseInt($fs_item.find("input[id$=-sort_order]:first").val());
     }
 
-    items.sort(function(a, b) { return a._sort_order - b._sort_order; });
+    $items.sort(function(a, b) { return a._sort_order - b._sort_order; });
+  }
+
+
+
+  // -------- Copy languages ------
+
+  cp_plugins.onCopyLanguageButtonClick = function(event)
+  {
+    var $button = $(event.target);
+    var language_code = $button.siblings('select').val();
+    var placeholder_slot = $button.attr('data-placeholder-slot');
+    var url = $('.inline-placeholder-group').attr('data-get-placeholder-data-url');
+    $.ajax({
+      url: url,
+      dataType: 'json',
+      data: 'language=' + language_code,
+      success: function(data, textStatus, xhr)
+      {
+        // Ask to update the tabs!
+        if(data.success)
+          cp_plugins.load_formset_data(data, placeholder_slot);
+        else
+          alert("Internal CMS error: failed to fetch site data!");
+      },
+      error: function(xhr, textStatus, ex)
+      {
+        alert("Internal CMS error: failed to fetch site data!");    // can't yet rely on $.ajaxError
+      }
+    });
+  }
+
+
+  cp_plugins.load_formset_data = function(data, match_placeholder_slot)
+  {
+    for (var i = 0; i < data.formset_forms.length; i++) {
+      // Each item is stored as basic formdata
+      // and generated HTML.
+      var itemdata = data.formset_forms[i];
+      if(match_placeholder_slot && itemdata.placeholder_slot != match_placeholder_slot)
+        continue;
+
+      // Replace the server-side generated prefix,
+      // as this clearly won't be the same as what we'll generate client-side.
+      var re_old_prefix = new RegExp(itemdata.prefix + '-', 'g');
+
+      cp_plugins.add_formset_item(itemdata.placeholder_slot, itemdata.model, {
+        'get_html': function(inline_meta, new_index) {
+          // Use the server-side provided HTML, which has fields filled in
+          // with all template-styling handled. It's a literal copy of the edit page.
+          var new_prefix = inline_meta.prefix + "-" + new_index + "-";
+          var new_formfields = itemdata.html.replace(re_old_prefix, new_prefix);
+
+          // Take the original template, replace the contents of the 'cp-formset-item-fields' block.
+          var orig_html = inline_meta.item_template.get_outerHtml().replace(/__prefix__/g, new_index);
+          var $orig_html = $(orig_html);
+          $orig_html.find('.cp-formset-item-fields').empty().html(new_formfields);
+          return $orig_html;
+        },
+        'on_post_add': function($fs_item) {
+          // Trigger a change() event for radio fields.
+          // This fixes the django-any-urlfield display.
+          $fs_item.find('input[type=radio]:checked').change();
+        }
+      });
+    }
   }
 
 
@@ -565,10 +663,9 @@ var cp_plugins = {};
   cp_plugins.remove_formset_item = function(child_node)
   {
     // Get dom info
-    var current_item = cp_data.get_formset_item_data(child_node);
+    var current_item = cp_data.get_inline_formset_item_info(child_node);
     var dominfo      = cp_data.get_formset_dom_info(current_item);
     var pane         = cp_data.get_placeholder_pane_for_item(current_item.fs_item);
-    var itemtype     = current_item.itemtype;
 
     // Get administration
     // dominfo slot is always filled in, id may be unknown yet.
@@ -596,8 +693,8 @@ var cp_plugins = {};
       // Newly added item, renumber in reverse order
       for( var i = current_item.index + 1; i < total_count; i++ )
       {
-        var fs_item = $("#" + itemtype.prefix + "-" + i);
-        cp_admin.renumber_formset_item(fs_item, itemtype.prefix, i - 1);
+        var $fs_item = $("#" + current_item.prefix + "-" + i);
+        cp_admin.renumber_formset_item($fs_item, current_item.prefix, i - 1);
       }
 
       dominfo.total_forms.value--;
@@ -662,37 +759,44 @@ var cp_plugins = {};
     }
 
     // Offer plugin view handlers a change to initialize after the placeholder editor is loaded, but before the items are moved.
-    for( var typename in plugin_handlers )
+    for( var model_name in plugin_handlers )
     {
-      if( plugin_handlers.hasOwnProperty(typename) && plugin_handlers[typename].initialize )
+      if( plugin_handlers.hasOwnProperty(model_name) && plugin_handlers[model_name].initialize )
       {
-        var itemtype = cp_data.get_formset_itemtype(typename);
-        var $formset_group = $("#" + itemtype.prefix + "-group");
-        plugin_handlers[typename].initialize($formset_group);
+        var item_meta = cp_data.get_contentitem_metadata_by_type(model_name);
+        var $formset_group = $("#" + item_meta.prefix + "-group");
+        plugin_handlers[model_name].initialize($formset_group);
       }
     }
   }
 
 
-  cp_plugins.get_view_handler = function(fs_item)
+  cp_plugins.get_view_handler = function($fs_item)
   {
-    var itemdata = cp_data.get_formset_item_data(fs_item);
-    var itemtype = itemdata.itemtype.type;
-    return plugin_handlers[ itemtype ];
+    var itemdata = cp_data.get_inline_formset_item_info($fs_item);
+    return plugin_handlers[ itemdata.type ];
   }
 
 
-  cp_plugins.enable_pageitem = function(fs_item)
+  cp_plugins.enable_pageitem = function($fs_item)
   {
-    var view_handler = cp_plugins.get_view_handler(fs_item);
-    if( view_handler ) view_handler.enable(fs_item);
+    // Default actions:
+    cp_widgets.enable_wysiwyg($fs_item);
+
+    // Custom view handler
+    var view_handler = cp_plugins.get_view_handler($fs_item);
+    if( view_handler ) view_handler.enable($fs_item);
   }
 
 
-  cp_plugins.disable_pageitem = function(fs_item)
+  cp_plugins.disable_pageitem = function($fs_item)
   {
-    var view_handler = cp_plugins.get_view_handler(fs_item);
-    if( view_handler ) view_handler.disable(fs_item);
+    // Default actions:
+    cp_widgets.disable_wysiwyg($fs_item);
+
+    // Custom code
+    var view_handler = cp_plugins.get_view_handler($fs_item);
+    if( view_handler ) view_handler.disable($fs_item);
   }
 
 })(window.jQuery || django.jQuery);

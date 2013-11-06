@@ -1,3 +1,5 @@
+.. _bundled-content-plugins:
+
 Bundled Content Plugins
 =======================
 
@@ -16,6 +18,18 @@ Standard plugins
    text
 
 
+Media
+-----
+
+.. toctree::
+   :maxdepth: 1
+
+   googledocsviewer
+   oembeditem
+   picture
+   twitterfeed
+
+
 Interactivity
 -------------
 
@@ -25,17 +39,6 @@ Interactivity
    commentsarea
    disquscommentsarea
    formdesignerlink
-
-
-Online content
---------------
-
-.. toctree::
-   :maxdepth: 1
-
-   googledocsviewer
-   oembeditem
-   twitterfeed
 
 
 Programming
@@ -57,3 +60,4 @@ Advanced
 
    iframe
    rawhtml
+   sharedcontent

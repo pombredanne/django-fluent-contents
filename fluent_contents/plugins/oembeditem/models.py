@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 from fluent_contents.models.db import ContentItem
+from fluent_contents.plugins.oembeditem.fields import OEmbedUrlField
 from fluent_contents.plugins.oembeditem import backend
 
 class OEmbedItem(ContentItem):
@@ -13,7 +14,7 @@ class OEmbedItem(ContentItem):
     TYPE_LINK = 'link'
 
     # Fetch parameters
-    embed_url = models.URLField(_("URL to embed"), help_text=_("Enter the URL of the online content to embed (e.g. a YouTube or Vimeo video, SlideShare presentation, etc..)"))
+    embed_url = OEmbedUrlField(_("URL to embed"))
     embed_max_width = models.PositiveIntegerField(_("Max width"), blank=True, null=True)
     embed_max_height = models.PositiveIntegerField(_("Max height"), blank=True, null=True)
 
@@ -38,8 +39,8 @@ class OEmbedItem(ContentItem):
 
 
     class Meta:
-        verbose_name = _("Embedded media")
-        verbose_name_plural = _("Embeddded media")
+        verbose_name = _("Online media")
+        verbose_name_plural = _("Online media")
 
 
     def __unicode__(self):
@@ -49,6 +50,8 @@ class OEmbedItem(ContentItem):
     def __init__(self, *args, **kwargs):
         super(OEmbedItem, self).__init__(*args, **kwargs)
         self._old_embed_url = self.embed_url
+        self._old_embed_max_width = self.embed_max_width
+        self._old_embed_max_height = self.embed_max_height
 
 
     def save(self, *args, **kwargs):
@@ -57,7 +60,11 @@ class OEmbedItem(ContentItem):
 
 
     def update_oembed_data(self):
-        if not self.type or self._old_embed_url != self.embed_url:
+        if not self.type \
+        or self._old_embed_url != self.embed_url \
+        or self._old_embed_max_width != self.embed_max_width \
+        or self._old_embed_max_height != self.embed_max_height:
+            # Fetch new embed code
             response = backend.get_oembed_data(self.embed_url, self.embed_max_width, self.embed_max_height)
             self.store_response(response)
             self._old_embed_url = self.embed_url

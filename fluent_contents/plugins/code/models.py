@@ -1,7 +1,9 @@
 from django.db import models
+from django.utils.text import Truncator
 from django.utils.translation import ugettext_lazy as _
 from fluent_contents.models import ContentItem
 from fluent_contents.plugins.code import backend, appsettings
+
 
 class CodeItem(ContentItem):
     """
@@ -17,4 +19,4 @@ class CodeItem(ContentItem):
         verbose_name_plural = _('Code snippets')
 
     def __unicode__(self):
-        return self.code
+        return Truncator(self.code).words(20)

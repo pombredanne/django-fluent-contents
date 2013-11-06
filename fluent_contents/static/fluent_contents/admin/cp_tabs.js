@@ -7,10 +7,18 @@ var cp_tabs = {};
 {
 
   // Cached DOM objects
-  var empty_tab_title = null;
-  var empty_tab = null;
+  var $empty_tabnav = null;
+  var $empty_tab = null;
+  var $placeholder_inline;
+  var $loading_tabnav;
+  var $orphaned_tabnav;
+  var $orphaned_tab;
+  var $tabnav_root;
+  var $tabs_root;
+
   var placeholder_group_prefix = null;
   var placeholder_id_prefix = null;
+  var plahceolder_name_prefix = null;
 
   // Allow debugging
   var stub = function() {};
@@ -20,14 +28,22 @@ var cp_tabs = {};
   cp_tabs.init = function()
   {
     // Get the tab templates
-    empty_tab_title = $("#cp-tabnav-template");
-    empty_tab       = $("#tab-template");
+    $empty_tabnav = $("#cp-tabnav-template");
+    $empty_tab = $(".cp-tab.empty-form");
+    $loading_tabnav = $("#cp-tabnav-loading");
+    $orphaned_tabnav = $("#cp-tabnav-orphaned");
+    $orphaned_tab = $("#tab-orphaned");
+    $tabnav_root = $("#cp-tabnav");
+    $tabs_root = $("#cp-tabmain");
 
     // Bind events
-    $("#cp-tabnav a").mousedown( cp_tabs.onTabMouseDown ).click( cp_tabs.onTabClick );
+    $tabnav_root.find("a").mousedown( cp_tabs.onTabMouseDown ).click( cp_tabs.onTabClick );
 
-    var placeholder_editor_inline = $(".inline-placeholder-group");
-    placeholder_group_prefix = placeholder_editor_inline.attr('id').replace(/-group$/, '');
+    $placeholder_inline = $(".inline-placeholder-group");
+    if($placeholder_inline.length == 0)
+      console.error("Missing .inline-placeholder-group in the page!");
+
+    placeholder_group_prefix = $placeholder_inline.attr('id').replace(/-group$/, '');
     placeholder_id_prefix = 'id_' + placeholder_group_prefix;   // HACK: assume id_%s as auto_id.
 
     // Improve quick editing a lot:
@@ -44,8 +60,8 @@ var cp_tabs = {};
    */
   cp_tabs.get_fallback_pane = function(role, last_known_nr)
   {
-    $("#cp-tabnav-orphaned").css("display", "inline");
-    return cp_data.get_object_for_pane($("#tab-orphaned"));
+    $orphaned_tabnav.css("display", "inline");
+    return cp_data.get_object_for_pane($("#tab-orphaned"), undefined);
   }
 
 
@@ -54,8 +70,8 @@ var cp_tabs = {};
    */
   cp_tabs.hide_fallback_pane = function()
   {
-    $("#cp-tabnav-orphaned").hide();
-    $("#tab-orphaned").hide();
+    $orphaned_tabnav.hide();
+    $orphaned_tab.hide();
     cp_tabs._ensure_active_tab();
   }
 
@@ -67,10 +83,7 @@ var cp_tabs = {};
    */
   cp_tabs.load_layout = function(layout)
   {
-    // Hide loading
-    var loading_tab = $("#cp-tabnav-loading").hide();
-    var tabnav  = $("#cp-tabnav");
-    var tabmain = $("#cp-tabmain");
+    $loading_tabnav.hide();
 
     // Deal with invalid layouts
     if( layout == null )
@@ -79,46 +92,48 @@ var cp_tabs = {};
       return;
     }
 
-    // Cache globally
+
+    // The following code rearranges the placeholder inline forms.
+    // It reuses what is available, and deletes the remaining items.
+    // Each time a load_layout() occurs, a different set of placeholders may be removed or recreated.
+    // This way, one consistent update is sent to the server when the page is saved.
+
     console.log("Received placeholders: ", layout.placeholders, "dom_regions=", cp_data.dom_placeholders );
     var dbplaceholders = cp_data.get_initial_placeholders();
     var newplaceholders = layout.placeholders;
-    var placeholders = [];
-
-    // Create map of old IDs
-    var dbplaceholderids = {};
-    for( var i = 0, len = dbplaceholders.length; i < len; i++ )
-      dbplaceholderids[dbplaceholders[i].slot] = dbplaceholders[i].id;
 
     // Amend the placeholder data with old ID's and dommnode info.
+    // Make sure the same ID is preserved for the same "slot".
+    var dbplaceholderids = {};
     var reused_ids = {};
-    for( i = 0, len = newplaceholders.length; i < len; i++ )
+
+    for( var i = 0; i < dbplaceholders.length; i++ )
+      dbplaceholderids[dbplaceholders[i].slot] = dbplaceholders[i].id;
+
+    for( i = 0; i < newplaceholders.length; i++ )
     {
-      var placeholder = newplaceholders[i];
-      var placeholder_id = dbplaceholderids[placeholder.slot] || '';
+      var newplaceholder = newplaceholders[i];
+      var newplaceholder_id = dbplaceholderids[newplaceholder.slot] || '';
 
-      // Prepare data for administration
-      // Reuse old ID's when possible.
-      placeholder.domnode = "tab-region-" + placeholder.slot;
-      placeholder.role = placeholder.role || 'm';
-      placeholder.id = placeholder_id;
-      placeholders.push(placeholder);
+      newplaceholder.domnode = null;
+      newplaceholder.role = newplaceholder.role || 'm';
+      newplaceholder.id = newplaceholder_id;
 
-      if( newplaceholders[i].id )
-        reused_ids[newplaceholders[i].id] = true;
+      if( newplaceholder_id )
+        reused_ids[newplaceholder_id] = true;
     }
 
-    // Find out how many items are deleted
-    // Remove the ones which are no longer available.
+    // Find out which placeholders should be deleted
     var id_index = 0;
-    tabmain.children('.cp-placeholder-delete, .cp-placeholder-delete').remove();
+    $tabs_root.children('.cp-placeholder-delete').remove();  // removes old DELETE fields
     for( var i = 0; i < dbplaceholders.length; i++ )
     {
       var id = dbplaceholders[i].id;
       if( !reused_ids[id] )
       {
+        // Recreate the DELETE field for the placeholders that should be removed now.
         var name = placeholder_group_prefix + '-' + id_index++;
-        tabmain.prepend(
+        $tabs_root.prepend(
           '<input type="checkbox" class="cp-placeholder-delete" name="' + name + '-DELETE" checked="checked" />' +
             '<input type="hidden" class="cp-placeholder-delete" name="' + name + '-id" value="' + id + '" />'
         );
@@ -130,11 +145,13 @@ var cp_tabs = {};
     for( i = 0, len = newplaceholders.length; i < len; i++ )
     {
       // Create DOM nodes
-      placeholder = newplaceholders[i];
-      loading_tab.before( cp_tabs._create_tab_title(placeholder) );
-      tabmain.append( cp_tabs._create_tab_content(placeholder, ( placeholder.id ? id_index : new_index )) );
+      newplaceholder = newplaceholders[i];
+      $loading_tabnav.before( cp_tabs._create_tab_title(newplaceholder) );
+      var $new_tab = cp_tabs._create_tab_content(newplaceholder, ( newplaceholder.id ? id_index : new_index ));
+      $tabs_root.append( $new_tab );
+      newplaceholder.domnode = $new_tab.attr('id');
 
-      if( placeholder.id )
+      if( newplaceholder.id )
         id_index++;
       else
         new_index++;
@@ -143,16 +160,19 @@ var cp_tabs = {};
     // Total forms should also incorporate deleted records, so always be >= dbamount
     $("#" + placeholder_id_prefix + "-TOTAL_FORMS").val(new_index);
 
-    // Rebind event
-    var tab_links = $("#cp-tabnav > li.cp-region > a");
-    tab_links.mousedown( cp_tabs.onTabMouseDown ).click( cp_tabs.onTabClick );
+    // Rebind events
+    var $tab_links = $tabnav_root.children("li.cp-region").children("a");
+    $tab_links.mousedown( cp_tabs.onTabMouseDown ).click( cp_tabs.onTabClick );
 
-    // Migrate formset items.
-    cp_data.set_placeholders( placeholders );
+
+    // Wrap up.
+    // At this point, the old expired tabs and newly created tabs still exist.
+    // Move the content items to the newly created tabs.
+    cp_data.set_placeholders( newplaceholders );
     cp_plugins.move_items_to_placeholders();
 
     // Cleanup. The previous old tabs can be removed now.
-    cp_tabs._remove_old_tabs();
+    cp_tabs._remove_expired_tabs();
     cp_tabs._ensure_active_tab();
     cp_tabs.update_empty_message();
     cp_tabs._restore_tabmain_height();
@@ -165,62 +185,70 @@ var cp_tabs = {};
   cp_tabs._create_tab_title = function(placeholder)
   {
     // The 'cp-region' class is not part of the template, to avoid matching the actual tabs.
-    var tabtitle = empty_tab_title.clone().removeAttr("id").addClass("cp-region").show();
-    tabtitle.find("a").attr("href", '#' + placeholder.domnode).text(placeholder.title);
-    return tabtitle;
+    var $tabtitle = $empty_tabnav.clone().removeAttr("id").addClass("cp-region").show();
+    $tabtitle.attr('data-tab-region', placeholder.slot);
+    $tabtitle.find("a").text(placeholder.title);
+    return $tabtitle;
   }
 
 
   cp_tabs._create_tab_content = function(placeholder, new_index)
   {
     // The 'cp-region-tab' class is not part of the template, but added here to avoid matching the actual tabs earlier on.
-    var tab = empty_tab.clone().attr("id", placeholder.domnode).addClass("cp-region-tab");
-    tab.find(".cp-plugin-add-button").attr({
-        'data-placeholder-id': placeholder.id,
-        'data-placeholder-slot': placeholder.slot
-    });
+    var inline_id = placeholder_group_prefix + "-" + new_index;
+    var $tab = $empty_tab.clone()
+      .addClass("cp-region-tab")
+      .attr({
+        'id': inline_id,
+        'data-tab-region': placeholder.slot
+      })
 
-    // Set placeholder form fields (id, slot, name, title) from placeholder object.
-    var inputs = tab.children('input[name*=__prefix__]');
-    for( var i = 0; i < inputs.length; i++ )
+    $tab.find(".cp-plugin-add-button")
+      .attr({
+          'data-placeholder-id': placeholder.id,
+          'data-placeholder-slot': placeholder.slot
+      });
+
+    // Set value of placeholder form fields (id, slot, name, title) from the placeholder object.
+    var $inputs = $tab.children('input[name*=__prefix__]');
+    for( var i = 0; i < $inputs.length; i++ )
     {
-      var name = inputs[i].name;
+      var name = $inputs[i].name;
       var fieldname = name.substring(name.lastIndexOf('-') + 1);
 
       if( fieldname == 'id' && ! placeholder.id)
-        inputs.eq(i).removeAttr('value');
+        $inputs.eq(i).removeAttr('value');
       else
-        inputs[i].value = placeholder[fieldname];
+        $inputs[i].value = placeholder[fieldname];
     }
 
-    // TODO: this is tricky, temporary there will be two elements with the same ID.
-    var name_prefix = inputs.filter('[name$=-__prefix__-id]').attr('name').replace(/-__prefix__-id/, '');
-    cp_admin.renumber_formset_item(tab, name_prefix, new_index);
-    return tab;
+    // NOTE: temporary there will be placeholder input elements with the same ID, before the expired tabs are removed.
+    cp_admin.renumber_formset_item($tab, placeholder_group_prefix, new_index);
+    return $tab;
   }
 
 
   cp_tabs.get_container = function()
   {
-    return $(".inline-placeholder-group");
+    return $placeholder_inline;
   }
 
 
   cp_tabs.show = function(slow)
   {
     if( slow )
-      $(".inline-placeholder-group").slideDown();
+      $placeholder_inline.slideDown();
     else
-      $(".inline-placeholder-group").show();
+      $placeholder_inline.show();
   }
 
 
   cp_tabs.hide = function(slow)
   {
     if( slow )
-      $(".inline-placeholder-group").slideUp();
+      $placeholder_inline.slideUp();
     else
-      $(".inline-placeholder-group").hide();
+      $placeholder_inline.hide();
   }
 
 
@@ -228,27 +256,27 @@ var cp_tabs = {};
   {
     // Replace tab titles with loading sign.
     // Must avoid copying the template tab too (this is another guard against it).
-    $("#cp-tabnav-loading").show();
-    $("#cp-tabnav-orphaned").hide();
-    $("#cp-tabnav > li.cp-region:not(#cp-tabnav-template)").remove();
+    $loading_tabnav.show();
+    $orphaned_tabnav.hide();
+    $tabnav_root.children("li.cp-region:not(#cp-tabnav-template)").remove();
 
     // set fixed height to avoid scrollbar/footer flashing.
-    var tabmain = $("#cp-tabmain");
-    var height = tabmain.height();
+    var height = $tabs_root.height();
     if( height )
     {
-      tabmain.css("height", height + "px");
+      $tabs_root.css("height", height + "px");
     }
 
-    // Hide and mark as old.
-    var all_tabs = tabmain.children(".cp-region-tab:not(#tab-template)");
-    all_tabs.removeClass("cp-region-tab").addClass("cp-oldtab").removeAttr("id").hide();
+    // Hide and mark as expired (will be deleted soon).
+    // Remove ID so the tab can't be found anymore by cp_data.get_placeholder_by_id()
+    var all_tabs = $tabs_root.children(".cp-region-tab:not(#tab-template)");
+    all_tabs.removeClass("cp-region-tab").addClass("cp-expired-tab").removeAttr("id").hide();
   }
 
 
-  cp_tabs.is_expired_tab = function(node)
+  cp_tabs.is_expired_tab = function($node)
   {
-    return node.closest('.cp-tab').hasClass('cp-oldtab');
+    return $node.closest('.cp-tab').hasClass('cp-expired-tab');
   }
 
 
@@ -256,8 +284,7 @@ var cp_tabs = {};
   {
     // Activate the fallback item (first) if none active.
     // This needs to happen after organize, so orphans tab might be visible
-    var tabnav = $("#cp-tabnav");
-    if( tabnav.children("li.active:visible").length == 0 )
+    if( $tabnav_root.children("li.active:visible").length == 0 )
     {
       cp_tabs._select_previous_or_first_tab();  // TODO: check orphaned tab
     }
@@ -266,8 +293,7 @@ var cp_tabs = {};
 
   cp_tabs.update_empty_message = function()
   {
-    console.log(cp_data.get_placeholders());
-    var no_tabs = cp_data.get_placeholders().length == 0 && $("#cp-tabmain .inline-related").length == 0;
+    var no_tabs = cp_data.get_placeholders().length == 0 && $tabs_root.find(".inline-related").length == 0;
     $("#cp-tabs-empty")[no_tabs ? "show" : "hide"]();
   }
 
@@ -275,32 +301,31 @@ var cp_tabs = {};
   cp_tabs._select_previous_or_first_tab = function()
   {
     // See if there is an old selected tab that can be reselected
-    var tabnav = $("#cp-tabnav");
-    var tab;
+    var $tab;
     var oldtab = ($.cookie ? $.cookie('cp-last-tab') : null);
     if( oldtab )
-      tab = tabnav.find('li.cp-region > a[href$=#' + oldtab + ']');  // .children() gave no results (note Django 1.3 ships jQuery v1.4.2)
+      $tab = $tabnav_root.find('li.cp-region[data-tab-region=' + oldtab + '] > a');  // .children() gave no results (note Django 1.3 ships jQuery v1.4.2)
 
-    if( ! tab || tab.length == 0 )
+    if( ! $tab || $tab.length == 0 )
     {
       // Get the first tab
-      tab = tabnav.children("li.cp-region > a:first");
-      if( tab.length == 0 )
+      $tab = $tabnav_root.children("li.cp-region > a:first");
+      if( $tab.length == 0 )
       {
         // Only fallback tab visible?
-        tab = $("#cp-tabnav-orphaned > a:first");
+        $tab = $orphaned_tabnav.children("a:first");
       }
     }
 
-    if( tab.length )
-      tab.mousedown().mouseup().click();
-    return tab.length > 0;
+    if( $tab.length )
+      $tab.mousedown().mouseup().click();
+    return $tab.length > 0;
   }
 
 
-  cp_tabs._remove_old_tabs = function()
+  cp_tabs._remove_expired_tabs = function()
   {
-    $("#cp-tabmain > .cp-oldtab").remove();
+    $tabs_root.children(".cp-expired-tab").remove();
 
     // Remove empty/obsolete dom regions
     cp_data.cleanup_empty_placeholders();
@@ -311,7 +336,7 @@ var cp_tabs = {};
   {
     // When the tab height is fixated (during hiding), restore that
     // after children height recalculations / wysiwyg initialisation have happened.
-    setTimeout( function() { $("#cp-tabmain").css("height", ''); }, 100 );
+    setTimeout( function() { $tabs_root.css("height", ''); }, 100 );
   }
 
 
@@ -334,28 +359,25 @@ var cp_tabs = {};
   }
 
 
-  cp_tabs.enable_tab = function(thisnav)
+  cp_tabs.enable_tab = function($thisnav)
   {
-    var nav   = $("#cp-tabnav li");
-    var panes = $("#cp-tabmain .cp-tab");
-
     // Find new pane to activate
-    var href  = thisnav.find("a").attr('href');
-    var active = href.substring( href.indexOf("#") + 1 );
-    var activePane = panes.filter("#" + active);
+    var tab_region = $thisnav.attr('data-tab-region');
+    var $panes = $tabs_root.children('.cp-tab');
+    var $activePane = $panes.filter("[data-tab-region=" + tab_region + "]");
 
     // And switch
-    panes.hide();
-    activePane.show();
-    nav.removeClass("active");
-    thisnav.addClass("active");
+    $panes.hide();
+    $activePane.show();
+    $tabnav_root.find('li').removeClass("active");
+    $thisnav.addClass("active");
 
-    cp_tabs._focus_first_input(activePane);
+    cp_tabs._focus_first_input($activePane);
 
     // Store as current tab
     if( $.cookie )
     {
-      $.cookie('cp-last-tab', active);
+      $.cookie('cp-last-tab', tab_region);
     }
   }
 
@@ -364,8 +386,8 @@ var cp_tabs = {};
   {
     // Auto focus on first editor.
     // This can either be an iframe (WYSIWYG editor), or normal input field.
-    var firstField = root.find(".yui-editor-editable-container:first > iframe, .form-row :input:first").eq(0);
-    firstField.focus();
+    var $firstField = root.find(".yui-editor-editable-container:first > iframe, .mceEditor:first iframe, .form-row :input:first").eq(0);
+    $firstField.focus();
   }
 
 

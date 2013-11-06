@@ -30,6 +30,8 @@ Getting started
 
    quickstart
    configuration
+   templatetags
+   optional-integration
 
 
 Using the plugins
@@ -38,8 +40,8 @@ Using the plugins
 .. toctree::
    :maxdepth: 2
 
-   newplugins/index
    plugins/index
+   newplugins/index
 
 
 Advanced topics
@@ -57,15 +59,7 @@ API documentation
 .. toctree::
    :maxdepth: 2
 
-   api/admin
-   api/analyzer
-   api/cache
-   api/extensions
-   api/forms
-   api/models
-   api/rendering
-   api/templatetags/placeholder_tags
-   api/utils
+   api/index
 
 
 Roadmap
@@ -74,7 +68,6 @@ Roadmap
 The following features are on the radar for future releases:
 
 * Frontend editing support
-* Global / shared placeholders
 * Gracefully handle errors when removing plugins (currently causes errors in django-polymorphic_ / `django.contrib.contenttypes`_)
 * Bridging other plugin systems, like Django CMS
 * Inline support (e.g. building a linklist plugin).

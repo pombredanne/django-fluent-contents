@@ -28,8 +28,15 @@ See the django-wysiwyg_ documentation for details
     Secondly, it's possible to create a different text plugin yourself,
     and let this plugin serve as canonical example.
 
+
 Installation
 ------------
+
+Install the dependencies via *pip*::
+
+    pip install django-fluent-contents[text]
+
+This installs the django-wysiwyg_ package.
 
 Add the following settings to ``settings.py``:
 
@@ -40,9 +47,6 @@ Add the following settings to ``settings.py``:
         'django_wysiwyg',
     )
 
-The dependencies can be installed via `pip`::
-
-    pip install django-wysiwyg
 
 Configuration
 -------------
@@ -61,7 +65,7 @@ DJANGO_WYSIWYG_FLAVOR
 ~~~~~~~~~~~~~~~~~~~~~
 
 The ``DJANGO_WYSIWYG_FLAVOR`` setting defines which WYSIWYG editor will be used.
-As of django-wysiwyg_ 0.5, the following editors are available:
+As of django-wysiwyg_ 0.5.1, the following editors are available:
 
 * **ckeditor** - The CKEditor_, formally known as FCKEditor.
 * **redactor** - The Redactor_ editor (requires a license).
